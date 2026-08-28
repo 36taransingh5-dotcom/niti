@@ -1,19 +1,75 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { Applicant, Decision, evaluate } from "@/core/engine/evaluate";
-import { PolicySpec } from "@/core/schema/spec";
+import { PolicySpec, collectConditions } from "@/core/schema/spec";
+import { scholarship2025 } from "@/core/fixtures/scholarship2025";
+import { generateApplications } from "@/core/synth/generate";
 
 /**
  * SQLite persistence for policy versions and applications.
  * File-based, zero external infrastructure: the demo cannot lose its
  * database because a cloud service is down.
+ *
+ * On Vercel, the filesystem outside /tmp is read-only and /tmp itself is
+ * ephemeral per serverless instance — there is no durable disk. Rather than
+ * pull in a hosted database for a hackathon demo, getDb() detects an empty
+ * database (which is what every cold start sees) and seeds it synchronously
+ * on first access, so the deployed app is always self-contained and never
+ * boots into an empty state. The trade-off: a citizen submission or a
+ * studio deploy made against one serverless instance is not guaranteed to
+ * survive a cold start on another — acceptable for a demo, not for
+ * production (that would call for a hosted Postgres/LibSQL database).
  */
 
-const DB_PATH = process.env.NITI_DB_PATH ?? path.join(process.cwd(), "data", "niti.db");
+const DB_PATH =
+  process.env.NITI_DB_PATH ??
+  (process.env.VERCEL ? "/tmp/niti.db" : path.join(process.cwd(), "data", "niti.db"));
 
 declare global {
   // eslint-disable-next-line no-var
   var __nitiDb: Database.Database | undefined;
+}
+
+function seedIfEmpty(db: Database.Database): void {
+  const { n } = db.prepare(`SELECT COUNT(*) n FROM policy_versions`).get() as { n: number };
+  if (n > 0) return;
+
+  const spec: PolicySpec = JSON.parse(JSON.stringify(scholarship2025));
+  for (const c of collectConditions(spec.eligibility)) c.status = "approved";
+  for (const d of spec.documents) d.status = "approved";
+  for (const e of spec.exceptions) e.status = "approved";
+
+  const insertVersion = db.prepare(
+    `INSERT INTO policy_versions (slug, version_label, title, source_text, spec_json, status, compiled_by)
+     VALUES (?, ?, ?, ?, ?, 'deployed', 'fixture')`,
+  );
+  const versionResult = insertVersion.run(
+    spec.policySlug,
+    spec.versionLabel,
+    spec.title,
+    spec.description,
+    JSON.stringify(spec),
+  );
+  const versionId = Number(versionResult.lastInsertRowid);
+
+  const insertApp = db.prepare(
+    `INSERT INTO applications (app_number, version_id, data_json, decision_json, outcome, source, submitted_at)
+     VALUES (?, ?, ?, ?, ?, 'synthetic', ?)`,
+  );
+  const seedApps = db.transaction(() => {
+    for (const app of generateApplications()) {
+      const decision = evaluate(spec, app.data);
+      insertApp.run(
+        app.appNumber,
+        versionId,
+        JSON.stringify(app.data),
+        JSON.stringify(decision),
+        decision.outcome,
+        app.submittedAt,
+      );
+    }
+  });
+  seedApps();
 }
 
 export function getDb(): Database.Database {
@@ -45,6 +101,7 @@ export function getDb(): Database.Database {
       submitted_at TEXT NOT NULL
     );
   `);
+  seedIfEmpty(db);
   globalThis.__nitiDb = db;
   return db;
 }

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Badge, Card } from "@/components/ui";
 import { applicationStats, listPolicyVersions } from "@/db/db";
 
+export const dynamic = "force-dynamic";
+
 const PIPELINE = [
   { label: "Policy document", sub: "written for humans", tone: "text-ink" },
   { label: "AI compiler", sub: "extracts structured rules", tone: "text-accent" },
@@ -55,7 +57,7 @@ export default function Home() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6">
       {/* Hero */}
       <section className="py-20">
         <Badge tone="accent">Build What Moves India — demonstration platform</Badge>

@@ -22,7 +22,7 @@ export default function StudioPage() {
   const versions = listPolicyVersions();
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12">
       <PageHeader
         eyebrow="Policy Studio"
         title="Compile a policy document"

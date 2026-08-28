@@ -129,7 +129,7 @@ export default async function DiffPage({
 
   if (!versionA || !versionB) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-20 text-center">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-20 text-center">
         <p className="text-[15px] text-ink-soft">
           Policy comparison needs two compiled revisions. The 2025 revision is
           deployed —{" "}
@@ -159,7 +159,7 @@ export default async function DiffPage({
     })[k];
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12">
       <PageHeader
         eyebrow="Policy diff → impact analysis"
         title={`${diff.from.title}: ${diff.from.versionLabel} → ${diff.to.versionLabel}`}

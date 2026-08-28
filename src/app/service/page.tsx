@@ -15,7 +15,7 @@ export default async function ServicePage({
 
   if (!version) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-20 text-center">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-20 text-center">
         <p className="text-ink-soft">
           No service is deployed yet.{" "}
           <Link href="/studio" className="font-semibold text-primary">
@@ -27,7 +27,7 @@ export default async function ServicePage({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-12">
       {params.deployed ? (
         <div className="mb-6 rounded-lg border border-ok bg-ok-soft px-4 py-3 text-[13px] font-medium text-ok">
           Service deployed from policy revision {params.deployed}. The form below

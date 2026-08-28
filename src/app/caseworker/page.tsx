@@ -48,7 +48,7 @@ export default async function CaseworkerPage({
     .all() as QueueRow[];
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12">
       <PageHeader
         eyebrow="Caseworker dashboard"
         title="Application queue"

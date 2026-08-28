@@ -104,7 +104,7 @@ export default async function ReviewPage({
 
   if (!version) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-20 text-center">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-20 text-center">
         <p className="text-ink-soft">
           No compiled policy found.{" "}
           <Link href="/studio" className="font-semibold text-primary">
@@ -124,7 +124,7 @@ export default async function ReviewPage({
     version.status !== "deployed";
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-12">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12">
       <PageHeader
         eyebrow="Policy Studio · Human validation"
         title={`${spec.title} — ${spec.versionLabel}`}

@@ -32,7 +32,7 @@ export default async function ResultPage({
   const app = getApplication(Number(id));
   if (!app) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-20 text-center text-ink-soft">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-20 text-center text-ink-soft">
         Application not found.
       </div>
     );
@@ -42,7 +42,7 @@ export default async function ResultPage({
   const o = OUTCOME[d.outcome as keyof typeof OUTCOME] ?? OUTCOME.ineligible;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 py-12">
       <PageHeader
         eyebrow="Decision"
         title={`Application ${app.appNumber}`}
