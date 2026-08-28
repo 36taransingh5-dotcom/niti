@@ -170,7 +170,10 @@ export default async function ReviewPage({
 
       <div className="mb-8 flex flex-wrap items-center gap-4">
         <Badge tone={version.compiledBy === "ai" ? "accent" : "primary"}>
-          compiled by {version.compiledBy === "ai" ? "AI (validated)" : "verified fixture"}
+          compiled by{" "}
+          {version.compiledBy === "ai"
+            ? "AI (validated)"
+            : "pre-verified compilation of this document"}
         </Badge>
         <Badge tone={version.status === "deployed" ? "ok" : "warn"}>{version.status}</Badge>
         <span className="font-mono text-[12px] text-ink-soft">

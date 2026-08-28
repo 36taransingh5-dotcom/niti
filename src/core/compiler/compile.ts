@@ -26,11 +26,20 @@ import { scholarship2026 } from "../fixtures/scholarship2026";
  * fixture compilation of the same document.
  */
 
-export interface CompileResult {
-  spec: PolicySpec;
-  compiledBy: "ai" | "fixture";
-  note: string;
-}
+export type CompileResult =
+  | {
+      ok: true;
+      spec: PolicySpec;
+      /**
+       * "ai" — compiled live by a model and validated against the schema.
+       * "verified-fixture" — this document IS one of the bundled demonstration
+       * policies, and we returned the pre-verified compilation *of that same
+       * document*. Never used for a document we did not compile from.
+       */
+      compiledBy: "ai" | "verified-fixture";
+      note: string;
+    }
+  | { ok: false; note: string };
 
 /** Reset every review status to pending — AI output is never pre-approved. */
 function markPending(spec: PolicySpec): PolicySpec {
@@ -41,13 +50,43 @@ function markPending(spec: PolicySpec): PolicySpec {
   return clone;
 }
 
-/** Pick the verified fixture that matches the uploaded document. */
-export function fixtureFor(sourceText: string): PolicySpec {
-  const is2026 =
-    sourceText.includes("2026") ||
-    sourceText.includes("3,50,000") ||
-    sourceText.toLowerCase().includes("disability exemption");
-  return markPending(is2026 ? scholarship2026 : scholarship2025);
+/** Punctuation-insensitive form, so PDF/DOCX extraction artefacts still match. */
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * The bundled demonstration policies, each with a signature specific enough
+ * that no other document can match it. Both marks must be present.
+ */
+const BUNDLED_POLICIES: { spec: PolicySpec; marks: string[] }[] = [
+  {
+    spec: scholarship2026,
+    marks: ["national merit support scholarship", "2026 revision"],
+  },
+  {
+    spec: scholarship2025,
+    marks: ["national merit support scholarship", "2025 revision"],
+  },
+];
+
+/**
+ * Returns the pre-verified compilation of `sourceText` ONLY when that text is
+ * one of the bundled demonstration policies.
+ *
+ * This deliberately returns undefined for anything else. An earlier version
+ * keyword-sniffed and fell back to the scholarship spec for *any* input, which
+ * meant an unrelated uploaded policy came back as a scholarship service whose
+ * rules carried confident "source quotes" attributed to a document that never
+ * contained them. Fabricating provenance is the one thing a policy compiler
+ * must never do — when we cannot compile a document, we say so.
+ */
+export function verifiedFixtureFor(sourceText: string): PolicySpec | undefined {
+  const normalized = normalizeForMatch(sourceText);
+  const match = BUNDLED_POLICIES.find((p) =>
+    p.marks.every((m) => normalized.includes(m)),
+  );
+  return match ? markPending(match.spec) : undefined;
 }
 
 const SYSTEM_PROMPT = `You are the NITI policy compiler. You transform government policy documents into a strict machine-readable specification (PolicySpec JSON) that a deterministic rules engine executes.
@@ -59,6 +98,8 @@ Rules:
 - "visibleWhen" (on a field) and "requiredWhen" (on a document) are OPTIONAL and mean "this field/document is only shown/required when this OTHER condition about the applicant is true" — e.g. a disability-certificate document has requiredWhen referencing the applicant's hasDisabilityCertificate field, NOT referencing the document's own doc_disability field. Omit visibleWhen/requiredWhen entirely (do not include the key) for any field or document that is always shown/required — do NOT invent a tautological self-referencing condition like "doc_income == true" as the requiredWhen for the income document itself.
 - Example of a correctly conditional document: { "id": "disability", "label": "Disability certificate", "requiresManualReview": true, "requiredWhen": { "type": "condition", "id": "req-disability-doc", "field": "hasDisabilityCertificate", "operator": "==", "value": true, "label": "Applicant holds a disability certificate", "sourceQuote": "...", "sourceSection": "4", "confidence": 0.9, "status": "pending" }, "sourceQuote": "...", "sourceSection": "4", "confidence": 0.9, "status": "pending" } — every ordinary (unconditional) document has no "requiredWhen" key at all.
 - Derive applicant form fields (with steps) sufficient to evaluate every condition and document requirement. Document confirmation fields use keys "doc_<documentId>" of type boolean.
+- A field's "label" names the DATA the applicant supplies, phrased as a form question or a noun ("Age", "Annual household income", "Are you currently enrolled?") — never the name of the rule that tests it ("Minimum age requirement" is a condition label, not a field label).
+- Set "unit" on every numeric field that has one, and always for money: use "₹ per year" (or the appropriate period) for rupee amounts, "years" for ages, "hours" for durations. Downstream tables format numbers from this field alone, so a monetary field without a rupee unit renders as a bare number.
 - Monetary values are plain numbers in rupees (₹3,00,000 → 300000).
 - specVersion is 1 and synthetic is true.
 - Do not invent rules that are not in the document.`;
@@ -146,6 +187,27 @@ async function compileWithOpenAI(
   return PolicySpec.parse(JSON.parse(content));
 }
 
+/**
+ * Fall back only to a pre-verified compilation of this *same* document.
+ * If the document is not one we have verified, compilation has failed and we
+ * report that rather than returning a specification for a different policy.
+ */
+function fallback(sourceText: string, why: string): CompileResult {
+  const verified = verifiedFixtureFor(sourceText);
+  if (verified) {
+    return {
+      ok: true,
+      spec: verified,
+      compiledBy: "verified-fixture",
+      note: `${why} This document is a bundled demonstration policy, so NITI used its pre-verified compilation — the rules and citations below were checked against this exact document.`,
+    };
+  }
+  return {
+    ok: false,
+    note: `${why} NITI cannot compile this document right now, and it will not substitute rules from a different policy. Configure an API key to compile it, or try one of the bundled demonstration policies.`,
+  };
+}
+
 export async function compilePolicy(
   sourceText: string,
   priorSpec?: PolicySpec,
@@ -154,11 +216,7 @@ export async function compilePolicy(
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   if (!openaiKey && !anthropicKey) {
-    return {
-      spec: fixtureFor(sourceText),
-      compiledBy: "fixture",
-      note: "No OPENAI_API_KEY or ANTHROPIC_API_KEY configured — using the verified fixture compilation for this document.",
-    };
+    return fallback(sourceText, "No AI provider is configured.");
   }
 
   const provider = openaiKey ? "OpenAI" : "Anthropic";
@@ -167,15 +225,13 @@ export async function compilePolicy(
       ? await compileWithOpenAI(sourceText, openaiKey, priorSpec)
       : await compileWithAnthropic(sourceText, anthropicKey!, priorSpec);
     return {
+      ok: true,
       spec: markPending(spec),
       compiledBy: "ai",
       note: `Compiled live by the AI policy compiler (${provider}) and validated against the PolicySpec schema.`,
     };
   } catch (err) {
-    return {
-      spec: fixtureFor(sourceText),
-      compiledBy: "fixture",
-      note: `Live compilation via ${provider} unavailable (${err instanceof Error ? err.message.slice(0, 120) : "error"}) — using the verified fixture compilation.`,
-    };
+    const detail = err instanceof Error ? err.message.slice(0, 120) : "unknown error";
+    return fallback(sourceText, `Live compilation via ${provider} failed (${detail}).`);
   }
 }

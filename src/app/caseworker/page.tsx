@@ -1,6 +1,14 @@
 import Link from "next/link";
-import { Badge, Card, PageHeader, StatCard, formatINR } from "@/components/ui";
-import { applicationStats, getDb } from "@/db/db";
+import {
+  Badge,
+  Card,
+  PageHeader,
+  StatCard,
+  columnLabel,
+  formatFieldValue,
+  summaryFields,
+} from "@/components/ui";
+import { applicationStats, getDb, getDeployedVersion } from "@/db/db";
 import { Applicant } from "@/core/engine/evaluate";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +38,12 @@ export default async function CaseworkerPage({
   const { filter = "review" } = await searchParams;
   const stats = applicationStats();
   const db = getDb();
+
+  // Queue columns are derived from the deployed specification, so the same
+  // dashboard serves whatever service is currently compiled. Applications
+  // submitted under an older revision simply render "—" for fields it lacks.
+  const deployed = getDeployedVersion();
+  const columns = deployed ? summaryFields(deployed.spec, 3) : [];
 
   const where =
     filter === "review"
@@ -83,8 +97,11 @@ export default async function CaseworkerPage({
           <thead>
             <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-faint">
               <th className="px-4 py-3 font-semibold">Application</th>
-              <th className="px-4 py-3 font-semibold">Applicant</th>
-              <th className="px-4 py-3 font-semibold">Income</th>
+              {columns.map((f) => (
+                <th key={f.key} className="px-4 py-3 font-semibold">
+                  {columnLabel(f)}
+                </th>
+              ))}
               <th className="px-4 py-3 font-semibold">Engine outcome</th>
               <th className="px-4 py-3 font-semibold">Caseworker</th>
               <th className="px-4 py-3 font-semibold">Submitted</th>
@@ -106,12 +123,14 @@ export default async function CaseworkerPage({
                       <Badge tone="accent">live</Badge>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3">{String(data.fullName ?? "—")}</td>
-                  <td className="px-4 py-3 font-mono tabular-nums">
-                    {typeof data.annualHouseholdIncome === "number"
-                      ? formatINR(data.annualHouseholdIncome)
-                      : "—"}
-                  </td>
+                  {columns.map((f) => (
+                    <td
+                      key={f.key}
+                      className={`px-4 py-3 ${f.type === "number" ? "font-mono tabular-nums" : ""}`}
+                    >
+                      {formatFieldValue(data[f.key], f)}
+                    </td>
+                  ))}
                   <td className="px-4 py-3">
                     <Badge
                       tone={
@@ -146,7 +165,7 @@ export default async function CaseworkerPage({
             })}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-ink-faint">
+                <td colSpan={columns.length + 4} className="px-4 py-8 text-center text-ink-faint">
                   No applications match this filter.
                 </td>
               </tr>

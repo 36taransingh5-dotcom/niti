@@ -1,5 +1,14 @@
 import Link from "next/link";
-import { Badge, Card, PageHeader, StatCard, formatValue } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  PageHeader,
+  StatCard,
+  columnLabel,
+  formatFieldValue,
+  formatValue,
+  summaryFields,
+} from "@/components/ui";
 import { DiffChange, diffSpecs } from "@/core/diff/diff";
 import { ImpactCategory, runImpact } from "@/core/impact/impact";
 import { getAllApplications, listPolicyVersions } from "@/db/db";
@@ -94,6 +103,25 @@ function ChangeCard({ change }: { change: DiffChange }) {
           ) : null}
         </Card>
       );
+    case "structure_changed":
+      return (
+        <Card className="border-warn/50 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[15px] font-semibold">Eligibility logic restructured</span>
+            <Badge tone="warn">structure changed</Badge>
+          </div>
+          <div className="mt-3 flex items-center gap-3 font-mono text-[15px]">
+            <span className="text-ink-soft line-through decoration-bad/60">{change.from}</span>
+            <span className="text-ink-faint">→</span>
+            <span className="font-semibold text-primary">{change.to}</span>
+          </div>
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+            No threshold moved, but the logic joining{" "}
+            <span className="font-mono">{change.fields.join(", ")}</span> changed shape —
+            which changes who qualifies.
+          </p>
+        </Card>
+      );
   }
 }
 
@@ -147,6 +175,10 @@ export default async function DiffPage({
     .map((a) => ({ id: a.appNumber, data: a.data }));
   const report = runImpact(applications, versionA.spec, versionB.spec);
 
+  // Drill-down columns come from the policy specification, not from any
+  // knowledge of what this particular service is about.
+  const columns = summaryFields(versionB.spec, 4);
+
   const cat = (params.cat as ImpactCategory | undefined) ?? "newly_eligible";
   const drillRows = report.rows.filter((r) => r.category === cat).slice(0, 25);
 
@@ -178,6 +210,24 @@ export default async function DiffPage({
             <p className="text-ink-soft">No structural differences detected.</p>
           ) : null}
         </div>
+
+        {/*
+          The diff and the impact analysis are computed independently — one
+          compares specifications, the other re-runs the engine over real
+          applications. If they ever disagree, the page says so rather than
+          showing a confident "no changes" above a panel full of flips.
+        */}
+        {diff.changes.length === 0 && report.affected > 0 ? (
+          <div className="mt-4 rounded-lg border border-bad bg-bad-soft px-4 py-3 text-[13px] leading-relaxed text-bad">
+            <span className="font-semibold">Inconsistency detected.</span> The
+            specification diff found no changes, but re-running the engine over{" "}
+            {report.total.toLocaleString("en-IN")} applications changes{" "}
+            {report.affected.toLocaleString("en-IN")} decisions. The impact
+            numbers below are authoritative — they come from the engine — and
+            the diff above is failing to describe a real change. Do not deploy
+            on the strength of the diff alone.
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-12">
@@ -286,10 +336,11 @@ export default async function DiffPage({
             <thead>
               <tr className="border-b border-line text-[11px] uppercase tracking-wider text-ink-faint">
                 <th className="px-4 py-3 font-semibold">Application</th>
-                <th className="px-4 py-3 font-semibold">Age</th>
-                <th className="px-4 py-3 font-semibold">Income</th>
-                <th className="px-4 py-3 font-semibold">Course</th>
-                <th className="px-4 py-3 font-semibold">Disability</th>
+                {columns.map((f) => (
+                  <th key={f.key} className="px-4 py-3 font-semibold">
+                    {columnLabel(f)}
+                  </th>
+                ))}
                 <th className="px-4 py-3 font-semibold">{diff.from.versionLabel} outcome</th>
                 <th className="px-4 py-3 font-semibold">{diff.to.versionLabel} outcome</th>
                 <th className="px-4 py-3 font-semibold">Deciding rule</th>
@@ -299,14 +350,14 @@ export default async function DiffPage({
               {drillRows.map((r) => (
                 <tr key={r.id}>
                   <td className="px-4 py-2.5 font-mono text-primary">{r.id}</td>
-                  <td className="px-4 py-2.5 font-mono tabular-nums">{String(r.applicant.age)}</td>
-                  <td className="px-4 py-2.5 font-mono tabular-nums">
-                    {formatValue(r.applicant.annualHouseholdIncome)}
-                  </td>
-                  <td className="px-4 py-2.5">{String(r.applicant.courseLevel)}</td>
-                  <td className="px-4 py-2.5">
-                    {r.applicant.hasDisabilityCertificate ? "yes" : "no"}
-                  </td>
+                  {columns.map((f) => (
+                    <td
+                      key={f.key}
+                      className={`px-4 py-2.5 ${f.type === "number" ? "font-mono tabular-nums" : ""}`}
+                    >
+                      {formatFieldValue(r.applicant[f.key], f)}
+                    </td>
+                  ))}
                   <td className="px-4 py-2.5">
                     <Badge tone={r.before.eligible ? "ok" : "bad"}>
                       {r.before.eligible ? "eligible" : "ineligible"}
@@ -324,7 +375,7 @@ export default async function DiffPage({
               ))}
               {drillRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-ink-faint">
+                  <td colSpan={columns.length + 4} className="px-4 py-8 text-center text-ink-faint">
                     No applications in this category.
                   </td>
                 </tr>

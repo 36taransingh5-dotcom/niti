@@ -118,7 +118,7 @@ export interface PolicyVersionRow {
   sourceText: string;
   spec: PolicySpec;
   status: "draft" | "deployed" | "archived";
-  compiledBy: "ai" | "fixture";
+  compiledBy: "ai" | "verified-fixture" | "fixture";
   createdAt: string;
 }
 

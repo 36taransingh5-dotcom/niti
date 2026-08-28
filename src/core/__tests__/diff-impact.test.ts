@@ -95,3 +95,49 @@ describe("impact analysis over the synthetic dataset", () => {
     expect(report.causesNewlyIneligible.map((c) => c.field)).toContain("age");
   });
 });
+
+describe("structural diff (audit regressions)", () => {
+  const prov = { sourceQuote: "q", sourceSection: "1", confidence: 0.9, status: "approved" as const };
+  const cond = (id: string, field: string, operator: string, value: unknown) =>
+    ({ type: "condition", id, field, operator, value, label: id, ...prov }) as never;
+  const withTree = (tree: unknown) =>
+    ({ ...scholarship2025, eligibility: tree }) as typeof scholarship2025;
+
+  it("keeps two conditions on the same field distinct (a range)", () => {
+    const range = (lo: number, hi: number) =>
+      withTree({
+        type: "group", id: "r", operator: "AND",
+        children: [cond("lo", "age", ">=", lo), cond("hi", "age", "<=", hi)],
+      });
+    const changes = diffSpecs(range(18, 30), range(21, 65)).changes;
+    // Both bounds moved; a field-keyed diff would only ever report the first.
+    expect(changes.filter((c) => c.type === "threshold_changed")).toHaveLength(2);
+    expect(changes).toContainEqual(expect.objectContaining({ from: 18, to: 21 }));
+    expect(changes).toContainEqual(expect.objectContaining({ from: 30, to: 65 }));
+  });
+
+  it("detects a group flipping AND to OR even though no value changes", () => {
+    const grp = (operator: string) =>
+      withTree({
+        type: "group", id: "r", operator,
+        children: [cond("a", "age", ">=", 18), cond("b", "enrolled", "==", true)],
+      });
+    const changes = diffSpecs(grp("AND"), grp("OR")).changes;
+    expect(changes).toContainEqual(
+      expect.objectContaining({ type: "structure_changed", from: "AND", to: "OR" }),
+    );
+  });
+
+  it("never reports zero changes while the engine flips real decisions", () => {
+    const grp = (operator: string) =>
+      withTree({
+        type: "group", id: "r", operator,
+        children: [cond("a", "age", ">=", 18), cond("b", "enrolled", "==", true)],
+      });
+    const apps = generateApplications(300).map((a) => ({ id: a.appNumber, data: a.data }));
+    const report = runImpact(apps, grp("AND"), grp("OR"));
+    const changes = diffSpecs(grp("AND"), grp("OR")).changes;
+    expect(report.affected).toBeGreaterThan(0);
+    expect(changes.length).toBeGreaterThan(0);
+  });
+});

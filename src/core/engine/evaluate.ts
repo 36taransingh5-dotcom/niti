@@ -78,15 +78,23 @@ export interface Decision {
 // Condition evaluation
 // ---------------------------------------------------------------------------
 
+/** True when the applicant supplied no usable value for a field. */
+function isAbsent(actual: unknown): boolean {
+  return actual === undefined || actual === null || actual === "";
+}
+
 function compare(node: ConditionNode, actual: unknown): boolean {
   const { operator, value } = node;
   switch (operator) {
     case "EXISTS":
-      return actual !== undefined && actual !== null && actual !== "";
+      return !isAbsent(actual);
     case "==":
       return actual === value;
     case "!=":
-      return actual !== value;
+      // Absent data must not satisfy a not-equals rule. `undefined !== x` is
+      // true in JavaScript, which would silently grant eligibility to an
+      // applicant who simply never answered the question.
+      return !isAbsent(actual) && actual !== value;
     case "IN":
       return (
         Array.isArray(value) &&
@@ -132,7 +140,10 @@ export function evaluateNode(node: RuleNode, applicant: Applicant): NodeResult {
       passed = children.some((c) => c.passed);
       break;
     case "NOT":
-      passed = !children[0].passed;
+      // NOT negates the conjunction of its children, so a NOT group with more
+      // than one child is still evaluated in full rather than silently
+      // dropping everything after the first.
+      passed = !children.every((c) => c.passed);
       break;
   }
   return {

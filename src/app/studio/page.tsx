@@ -18,7 +18,12 @@ const SAMPLES = [
   },
 ];
 
-export default function StudioPage() {
+export default async function StudioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const versions = listPolicyVersions();
 
   return (
@@ -28,6 +33,13 @@ export default function StudioPage() {
         title="Compile a policy document"
         description="Upload a policy, or use a bundled demonstration policy. The AI compiler extracts eligibility rules, exceptions, document requirements, and workflow — every element cited back to the source text and awaiting human approval."
       />
+
+      {error ? (
+        <div className="mb-6 rounded-lg border border-bad bg-bad-soft px-4 py-3">
+          <div className="text-[13px] font-semibold text-bad">Compilation failed</div>
+          <p className="mt-1 text-[13px] leading-relaxed text-bad/90">{error}</p>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">

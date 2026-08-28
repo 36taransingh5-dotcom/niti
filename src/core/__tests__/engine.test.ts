@@ -3,6 +3,7 @@ import { evaluate, evaluateNode } from "../engine/evaluate";
 import { RuleNode, PolicySpec } from "../schema/spec";
 import { scholarship2025 } from "../fixtures/scholarship2025";
 import { scholarship2026 } from "../fixtures/scholarship2026";
+import { compilePolicy, verifiedFixtureFor } from "../compiler/compile";
 
 const prov = {
   sourceQuote: "q",
@@ -157,5 +158,44 @@ describe("full decisions against the 2025 policy", () => {
     });
     expect(withDisability.documents.find((d) => d.id === "disability")?.required).toBe(true);
     expect(withDisability.missingDocuments.map((m) => m.id)).toContain("disability");
+  });
+});
+
+describe("operators against absent data (audit regressions)", () => {
+  it("'!=' does not treat missing data as satisfying the rule", () => {
+    // undefined !== "revoked" is true in JS; an eligibility engine must not
+    // grant a pass to an applicant who never answered.
+    expect(evaluateNode(cond("status", "!=", "revoked"), {}).passed).toBe(false);
+    expect(evaluateNode(cond("status", "!=", "revoked"), { status: "" }).passed).toBe(false);
+    expect(evaluateNode(cond("status", "!=", "revoked"), { status: "active" }).passed).toBe(true);
+    expect(evaluateNode(cond("status", "!=", "revoked"), { status: "revoked" }).passed).toBe(false);
+  });
+
+  it("NOT evaluates every child, not just the first", () => {
+    const tree: RuleNode = {
+      type: "group",
+      id: "n",
+      operator: "NOT",
+      children: [cond("a", "==", true), cond("b", "==", true)],
+    };
+    // NOT(a AND b): both true -> false; any false -> true.
+    expect(evaluateNode(tree, { a: true, b: true }).passed).toBe(false);
+    expect(evaluateNode(tree, { a: true, b: false }).passed).toBe(true);
+    expect(evaluateNode(tree, { a: false, b: true }).passed).toBe(true);
+  });
+});
+
+describe("compiler never fabricates a specification", () => {
+  it("refuses an unrelated document instead of returning a scholarship spec", async () => {
+    expect(verifiedFixtureFor("MATERNITY BENEFIT SCHEME — 26 weeks paid leave")).toBeUndefined();
+    // No API key is configured in the test environment.
+    const result = await compilePolicy("MATERNITY BENEFIT SCHEME — 26 weeks paid leave");
+    expect(result.ok).toBe(false);
+    expect(result).not.toHaveProperty("spec");
+  });
+
+  it("returns the pre-verified compilation for a bundled demonstration policy", () => {
+    const text = "National Merit Support Scholarship — Scheme Guidelines (2026 Revision)";
+    expect(verifiedFixtureFor(text)?.versionLabel).toBe("2026");
   });
 });

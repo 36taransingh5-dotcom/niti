@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { FieldDef, PolicySpec, collectConditions } from "@/core/schema/spec";
 
 export function PageHeader({
   eyebrow,
@@ -137,4 +138,68 @@ export function formatValue(v: unknown): string {
   if (Array.isArray(v)) return v.join(", ");
   if (v === undefined || v === null || v === "") return "—";
   return String(v);
+}
+
+/**
+ * Formats an applicant value using the field's own definition rather than
+ * guessing from the number's magnitude. Columns rendered from an arbitrary
+ * PolicySpec must not assume every large number is rupees — a policy counting
+ * training hours would otherwise render "2000 hours" as "₹2,000".
+ */
+export function formatFieldValue(v: unknown, field?: FieldDef): string {
+  if (v === undefined || v === null || v === "") return "—";
+  if (field?.type === "enum") {
+    const opt = field.options?.find((o) => o.value === v);
+    return opt ? opt.label : String(v);
+  }
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (typeof v === "number") {
+    return field?.unit?.includes("₹")
+      ? formatINR(v)
+      : v.toLocaleString("en-IN");
+  }
+  return String(v);
+}
+
+/**
+ * Chooses which of a spec's fields to surface as summary columns in a table.
+ * Prefers the fields the policy actually decides on (those referenced by an
+ * eligibility condition), keeps one identifying free-text field first, and
+ * skips the doc_* confirmation booleans.
+ *
+ * Among decisive fields, numbers and enums come before booleans: a threshold
+ * or a category tells a caseworker far more at a glance than a yes/no.
+ */
+export function summaryFields(spec: PolicySpec, limit = 4): FieldDef[] {
+  const decisive = new Set(collectConditions(spec.eligibility).map((c) => c.field));
+  const candidates = spec.fields.filter((f) => !f.key.startsWith("doc_"));
+  const rank = { number: 0, enum: 1, string: 2, boolean: 3 } as const;
+
+  const identity = candidates.filter((f) => f.type === "string" && !decisive.has(f.key));
+  const decisiveFields = candidates
+    .filter((f) => decisive.has(f.key))
+    .sort((a, b) => rank[a.type] - rank[b.type]);
+  const rest = candidates.filter(
+    (f) => !identity.includes(f) && !decisiveFields.includes(f),
+  );
+
+  return [...identity.slice(0, 1), ...decisiveFields, ...rest].slice(0, limit);
+}
+
+/**
+ * A short column heading for a field. Field labels are written as form
+ * questions ("Are you currently enrolled in an accredited institution?"),
+ * which read badly as table headers, so long or interrogative labels fall
+ * back to the humanised field key.
+ */
+export function columnLabel(field: FieldDef): string {
+  if (field.label.length <= 24 && !field.label.trim().endsWith("?")) {
+    return field.label;
+  }
+  const words = field.key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }

@@ -56,6 +56,13 @@ export async function compilePolicyAction(formData: FormData): Promise<void> {
   // reading a renamed-but-identical field as "removed" + "added".
   const priorSpec = listPolicyVersions().at(-1)?.spec;
   const result = await compilePolicy(sourceText, priorSpec);
+
+  // A failed compilation is reported as a failure. NITI never falls back to
+  // rules extracted from some other policy document.
+  if (!result.ok) {
+    redirect(`/studio?error=${encodeURIComponent(result.note)}`);
+  }
+
   const id = insertPolicyVersion({
     spec: result.spec,
     sourceText,
