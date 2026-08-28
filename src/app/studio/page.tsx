@@ -55,14 +55,14 @@ export default function StudioPage() {
           <Card className="p-6">
             <div className="text-[15px] font-semibold">Upload your own policy</div>
             <p className="mt-1 text-[13px] text-ink-soft">
-              Plain text or Markdown. The compiler produces the same structured
-              specification format regardless of source.
+              PDF, Word (.docx), plain text, or Markdown. The compiler produces
+              the same structured specification format regardless of source.
             </p>
             <form action={compilePolicyAction} className="mt-4 flex flex-wrap items-center gap-3">
               <input
                 type="file"
                 name="file"
-                accept=".md,.txt"
+                accept=".pdf,.docx,.md,.txt"
                 required
                 className="text-[13px] text-ink-soft file:mr-3 file:rounded-lg file:border file:border-line-strong file:bg-surface file:px-3 file:py-1.5 file:text-[13px] file:font-semibold file:text-ink"
               />

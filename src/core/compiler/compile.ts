@@ -63,13 +63,42 @@ Rules:
 - specVersion is 1 and synthetic is true.
 - Do not invent rules that are not in the document.`;
 
-async function compileWithAnthropic(sourceText: string, apiKey: string): Promise<PolicySpec> {
+/**
+ * Compact summary of a prior compiled spec's field vocabulary, given to the
+ * compiler when it is revising a policy it has compiled before. Field-name
+ * continuity across revisions is what lets diffSpecs() match a condition in
+ * the old version to its counterpart in the new one — without it, a
+ * revision that renames nothing conceptually still reads as wholesale
+ * "removed" and "added" conditions instead of a threshold change.
+ */
+function summarizeFieldsForContinuity(prior: PolicySpec): string {
+  const conditionFields = new Map<string, string>();
+  for (const c of collectConditions(prior.eligibility)) {
+    if (!conditionFields.has(c.field)) conditionFields.set(c.field, c.label);
+  }
+  const lines = [...conditionFields.entries()].map(
+    ([field, label]) => `- ${field}: "${label}"`,
+  );
+  const docLines = prior.documents.map((d) => `- doc_${d.id}: "${d.label}"`);
+  return [...lines, ...docLines].join("\n");
+}
+
+function continuityInstruction(priorSpec?: PolicySpec): string {
+  if (!priorSpec) return "";
+  return `\n\nThis is a revision of a policy already compiled once before. The prior specification used these applicant field keys:\n${summarizeFieldsForContinuity(priorSpec)}\n\nFor any condition or document in the new document that represents the SAME underlying concept as one above (e.g. the same eligibility requirement with a changed threshold, or the same required document), reuse the EXACT same field key — this is what lets the two versions be diffed. Only introduce a new field key for a genuinely new concept that has no counterpart above.`;
+}
+
+async function compileWithAnthropic(
+  sourceText: string,
+  apiKey: string,
+  priorSpec?: PolicySpec,
+): Promise<PolicySpec> {
   const client = new Anthropic({ apiKey });
   const jsonSchema = z.toJSONSchema(PolicySpec, { target: "draft-7" });
   const response = await client.messages.create({
     model: process.env.NITI_COMPILER_MODEL ?? "claude-sonnet-5",
     max_tokens: 16000,
-    system: SYSTEM_PROMPT,
+    system: SYSTEM_PROMPT + continuityInstruction(priorSpec),
     tools: [
       {
         name: "emit_policy_spec",
@@ -93,14 +122,18 @@ async function compileWithAnthropic(sourceText: string, apiKey: string): Promise
   return PolicySpec.parse(toolUse.input);
 }
 
-async function compileWithOpenAI(sourceText: string, apiKey: string): Promise<PolicySpec> {
+async function compileWithOpenAI(
+  sourceText: string,
+  apiKey: string,
+  priorSpec?: PolicySpec,
+): Promise<PolicySpec> {
   const client = new OpenAI({ apiKey });
   const jsonSchema = z.toJSONSchema(PolicySpec, { target: "draft-7" });
   const response = await client.chat.completions.create({
     model: process.env.NITI_OPENAI_MODEL ?? "gpt-4o",
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: SYSTEM_PROMPT + continuityInstruction(priorSpec) },
       {
         role: "user",
         content: `Compile the following policy document into a PolicySpec. Respond with a single JSON object only — no markdown code fences, no commentary — conforming to this JSON Schema:\n\n${JSON.stringify(jsonSchema)}\n\n<policy_document>\n${sourceText}\n</policy_document>`,
@@ -113,7 +146,10 @@ async function compileWithOpenAI(sourceText: string, apiKey: string): Promise<Po
   return PolicySpec.parse(JSON.parse(content));
 }
 
-export async function compilePolicy(sourceText: string): Promise<CompileResult> {
+export async function compilePolicy(
+  sourceText: string,
+  priorSpec?: PolicySpec,
+): Promise<CompileResult> {
   const openaiKey = process.env.OPENAI_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
@@ -128,8 +164,8 @@ export async function compilePolicy(sourceText: string): Promise<CompileResult> 
   const provider = openaiKey ? "OpenAI" : "Anthropic";
   try {
     const spec = openaiKey
-      ? await compileWithOpenAI(sourceText, openaiKey)
-      : await compileWithAnthropic(sourceText, anthropicKey!);
+      ? await compileWithOpenAI(sourceText, openaiKey, priorSpec)
+      : await compileWithAnthropic(sourceText, anthropicKey!, priorSpec);
     return {
       spec: markPending(spec),
       compiledBy: "ai",

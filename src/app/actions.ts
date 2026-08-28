@@ -5,6 +5,7 @@ import path from "path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { compilePolicy } from "@/core/compiler/compile";
+import { extractPolicyText } from "@/core/compiler/extract-text";
 import { coerceValues, missingRequiredFields } from "@/core/formgen/formgen";
 import {
   PolicySpec,
@@ -18,6 +19,7 @@ import {
   getDeployedVersion,
   getPolicyVersion,
   insertPolicyVersion,
+  listPolicyVersions,
   setCaseworkerDecision,
   updateSpec,
 } from "@/db/db";
@@ -39,14 +41,19 @@ export async function compilePolicyAction(formData: FormData): Promise<void> {
 
   let sourceText: string;
   if (file && file.size > 0) {
-    sourceText = await file.text();
+    sourceText = await extractPolicyText(file);
   } else if (sample === "2025" || sample === "2026") {
     sourceText = readSamplePolicy(sample);
   } else {
     redirect("/studio");
   }
 
-  const result = await compilePolicy(sourceText);
+  // Give the compiler the most recently compiled version of this policy (if
+  // any) so it reuses field keys for unchanged concepts — that continuity is
+  // what lets the diff tool match conditions across revisions instead of
+  // reading a renamed-but-identical field as "removed" + "added".
+  const priorSpec = listPolicyVersions().at(-1)?.spec;
+  const result = await compilePolicy(sourceText, priorSpec);
   const id = insertPolicyVersion({
     spec: result.spec,
     sourceText,
