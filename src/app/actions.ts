@@ -2,10 +2,12 @@
 
 import fs from "fs";
 import path from "path";
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { compilePolicy } from "@/core/compiler/compile";
 import { extractPolicyText } from "@/core/compiler/extract-text";
+import { ResultViewDecision, stripTraceQuotes } from "@/core/engine/evaluate";
 import { coerceValues, missingRequiredFields } from "@/core/formgen/formgen";
 import {
   PolicySpec,
@@ -158,7 +160,27 @@ export async function submitApplicationAction(formData: FormData): Promise<void>
     if (f.type === "boolean") data[f.key] = false;
   }
 
-  const { id } = decideAndInsert(version.spec, version.id, data);
+  const { id, appNumber, decision } = decideAndInsert(version.spec, version.id, data);
+
+  // On Vercel, /tmp is per-instance: the write above lands wherever this
+  // request happened to run, but the redirect below issues a fresh request
+  // that may be routed to a different, equally-empty-of-this-row instance.
+  // The result page falls back to this cookie when the DB lookup misses, so
+  // "submit → see your decision" is never broken by which instance served
+  // which half of the round trip. Trimmed to only what that page renders
+  // (outcome, explanations, a quote-stripped trace) to stay well under the
+  // ~4KB per-cookie limit — the full Decision object does not fit.
+  const cookiePayload: ResultViewDecision = {
+    outcome: decision.outcome,
+    explanations: decision.explanations,
+    trace: stripTraceQuotes(decision.trace),
+  };
+  (await cookies()).set(
+    "niti_last_app",
+    JSON.stringify({ id, appNumber, decision: cookiePayload }),
+    { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 },
+  );
+
   revalidatePath("/caseworker");
   redirect(`/service/result/${id}`);
 }

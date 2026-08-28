@@ -254,3 +254,22 @@ export function evaluate(spec: PolicySpec, applicant: Applicant): Decision {
     explanations,
   };
 }
+
+/** The subset of a Decision the citizen result page actually renders. */
+export type ResultViewDecision = Pick<Decision, "outcome" | "explanations"> & {
+  trace: NodeResult;
+};
+
+/**
+ * Strips sourceQuote (unused by any renderer of a trace, only ever the
+ * bulkiest field on it) from every condition in a trace tree. Used to keep
+ * the cookie-based fallback in /service/result well under the ~4KB per-
+ * cookie limit — see the comment in submitApplicationAction.
+ */
+export function stripTraceQuotes(node: NodeResult): NodeResult {
+  if (node.kind === "condition") {
+    const { sourceQuote: _sourceQuote, ...rest } = node;
+    return rest as NodeResult;
+  }
+  return { ...node, children: node.children.map(stripTraceQuotes) };
+}

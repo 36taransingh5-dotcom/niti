@@ -1,9 +1,33 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { TraceView } from "@/components/rule-tree";
 import { Badge, Card, PageHeader } from "@/components/ui";
+import { ResultViewDecision } from "@/core/engine/evaluate";
 import { getApplication } from "@/db/db";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Recovers a just-submitted decision from the cookie set in
+ * submitApplicationAction when the database lookup misses — see the
+ * comment there for why that happens on Vercel.
+ */
+async function readFallbackFromCookie(
+  id: number,
+): Promise<{ id: number; appNumber: string; decision: ResultViewDecision } | undefined> {
+  const raw = (await cookies()).get("niti_last_app")?.value;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as {
+      id: number;
+      appNumber: string;
+      decision: ResultViewDecision;
+    };
+    return parsed.id === id ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const OUTCOME = {
   eligible: {
@@ -29,7 +53,10 @@ export default async function ResultPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const app = getApplication(Number(id));
+  const numericId = Number(id);
+  const dbApp = getApplication(numericId);
+  const app = dbApp ?? (await readFallbackFromCookie(numericId));
+
   if (!app) {
     return (
       <div className="mx-auto max-w-3xl px-4 sm:px-6 py-20 text-center text-ink-soft">
